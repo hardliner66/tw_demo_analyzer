@@ -402,7 +402,8 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     map_name.into()
                 };
-                std::fs::write(p, map_data).unwrap();
+                std::fs::write(&p, map_data).unwrap();
+                println!("Exported map to {p:?}");
             } else {
                 eprintln!("Map not found in demo!");
                 exit(1);
