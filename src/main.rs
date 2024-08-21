@@ -1,11 +1,9 @@
-use std::{
-    cmp::Ordering, collections::HashMap, fs::File, io::BufReader, path::PathBuf, process::exit,
-};
+use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf, process::exit};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use stringlit::s;
-use twsnap::{compat::ddnet::DemoReader, enums::HookState, time::Instant, Snap};
+use twsnap::{compat::ddnet::DemoReader, enums::HookState, Snap};
 
 mod data;
 
@@ -70,14 +68,11 @@ enum Command {
     ExtractMap { path: PathBuf },
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct DirectionChange(Instant);
-
 #[derive(Debug, Clone, Default)]
 struct Stats {
     average: f32,
     median: f32,
-    max: f32,
+    max: usize,
     overall_changes: usize,
 }
 
@@ -85,46 +80,49 @@ struct Stats {
 struct CombinedStats {
     direction_change_rate_average: f32,
     direction_change_rate_median: f32,
-    direction_change_rate_max: f32,
+    direction_change_rate_max: usize,
     hook_state_change_rate_average: f32,
     hook_state_change_rate_median: f32,
-    hook_state_change_rate_max: f32,
+    hook_state_change_rate_max: usize,
     direction_changes: usize,
     hook_changes: usize,
     overall_changes: usize,
 }
 
-fn calculate_direction_change_stats(mut changes: Vec<DirectionChange>) -> Stats {
-    if changes.is_empty() || changes.len() == 1 {
+fn calculate_direction_change_stats(mut changes: Vec<i32>) -> Stats {
+    if changes.is_empty() {
         return Stats::default();
     }
 
-    changes.sort_by_key(|a| a.0);
-
-    let mut last_tick = changes.first().unwrap().0;
+    changes.sort();
 
     let mut times = Vec::new();
-    for c in changes.iter().skip(1) {
-        let duration_since_last_change = c.0.duration_since(last_tick).unwrap_or_default();
-        let ticks_per_action = duration_since_last_change.ticks();
-        if ticks_per_action > 0 {
-            times.push((1.0 / ticks_per_action as f32) * 50.0);
-            last_tick = c.0;
+    let changes_count = changes.len();
+    for i in 0..changes_count {
+        let last_tick = changes[i] + 50;
+        let mut actions = 1;
+        for n in 1..50 {
+            if i + n >= changes_count || changes[i + n] > last_tick {
+                break;
+            }
+            actions += 1;
         }
+        times.push(actions);
     }
 
-    times.sort_by(|a, b| {
-        if a < b {
-            Ordering::Less
-        } else if a > b {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        }
-    });
+    assert!(
+        times.len() > 0,
+        "If we are here, we must have at least one action per second"
+    );
+
+    if times.is_empty() {
+        return Stats::default();
+    }
+
+    times.sort();
 
     let max = *times.last().unwrap();
-    let average = times.iter().sum::<f32>() / times.len() as f32;
+    let average = times.iter().sum::<usize>() as f32 / times.len() as f32;
 
     let median = if times.len() % 2 == 0 {
         let mid = times.len() / 2;
@@ -179,6 +177,7 @@ fn main() -> anyhow::Result<()> {
                         continue;
                     }
                     if let Some(tee) = &p.tee {
+                        let tick = (tee.tick.seconds() * 50.0) as i32;
                         inputs
                             .entry(name.clone())
                             .or_insert_with(|| Vec::new())
@@ -191,7 +190,7 @@ fn main() -> anyhow::Result<()> {
                             direction_stats
                                 .entry(name.clone())
                                 .or_insert(Vec::new())
-                                .push(DirectionChange(tee.tick));
+                                .push(tick);
                         }
                         last_input_direction.insert(name.clone(), tee.direction);
 
@@ -203,7 +202,7 @@ fn main() -> anyhow::Result<()> {
                             hook_stats
                                 .entry(name.clone())
                                 .or_insert(Vec::new())
-                                .push(DirectionChange(tee.tick));
+                                .push(tick);
                         }
                         last_input_hook.insert(name.clone(), hook_pressed(tee.hook_state));
                     }
@@ -297,7 +296,8 @@ fn main() -> anyhow::Result<()> {
                                     "Median  : {direction_change_rate_median:0>5.2} per second"
                                 ));
                                 vec.push(format!(
-                                    "Max ... : {direction_change_rate_max:0>5.2} per second"
+                                    "Max ... : {:0>5.2} per second",
+                                    direction_change_rate_max as f32
                                 ));
                                 vec.push(s!(""));
                                 vec.push(format!("{:-^44}", format!(" Hook State Change Rate ")));
@@ -309,7 +309,8 @@ fn main() -> anyhow::Result<()> {
                                     "Median  : {hook_state_change_rate_median:0>5.2} per second"
                                 ));
                                 vec.push(format!(
-                                    "Max ... : {hook_state_change_rate_max:0>5.2} per second"
+                                    "Max ... : {:0>5.2} per second",
+                                    hook_state_change_rate_max as f32
                                 ));
                                 vec.push(s!(""));
                                 vec.push(s!("============================================"));
