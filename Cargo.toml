@@ -16,3 +16,8 @@ serde_yaml = "0.9.34"
 fixed = {version="1.24.0", features = ["serde"]}
 serde = { version = "1.0.208", features = ["derive"] }
 stringlit = "2.1.0"
+graplot = "0.1.22"
+eframe = { version = "0.28.1" }
+winit = "0.29.15"
+egui-dropdown = "0.10.0"
+egui_plot = "0.28.1"
